@@ -1,20 +1,23 @@
 
 /* glossary.js — Hover tooltip glossary (Rise-friendly)
+   - Reads glossary.json in same folder
    - Matches your JSON structure:
      {
        "settings": { "caseSensitive": false, ... },
        "terms": [ { "word": "...", "definition": "...", "enabled": true, ... }, ... ]
      }
-   - Expects glossary.json in the same folder as this script.
+
+   Fixes Rise tooltip clipping by adding temporary bottom padding when tooltip is shown.
 */
 
 (function () {
   const JSON_URL = new URL("glossary.json", document.currentScript.src).toString();
 
-  // How much extra space to add under the tooltip so borders/shadows don't clip
-  const TOOLTIP_BUFFER_PX = 28;
-  // Keeps tooltip away from viewport edges
+  // How close tooltip can get to viewport edges
   const EDGE_MARGIN_PX = 12;
+
+  // Extra space to ensure border + shadow never gets clipped
+  const CLIP_BUFFER_PX = 36;
 
   let dataCache = null;
   let mapCache = null;
@@ -23,54 +26,27 @@
   let hideTimer = null;
   let activeAnchor = null;
 
+  let originalBodyPaddingBottom = null;
+
   function normalize(str, caseSensitive) {
     const s = (str || "").trim();
     return caseSensitive ? s : s.toLowerCase();
   }
 
-  function getSpacerEl() {
-    // This is the element we'll include in the Rise Loader block.
-    return document.getElementById("glossary-spacer");
+  function ensureOriginalPaddingCaptured() {
+    if (originalBodyPaddingBottom !== null) return;
+    const cs = window.getComputedStyle(document.body);
+    originalBodyPaddingBottom = cs.paddingBottom || "0px";
   }
 
-  function setSpacerHeight(px) {
-    const spacer = getSpacerEl();
-    if (!spacer) return;
-    spacer.style.height = `${Math.max(0, px)}px`;
+  function setBodyPaddingBottom(px) {
+    ensureOriginalPaddingCaptured();
+    document.body.style.paddingBottom = `calc(${originalBodyPaddingBottom} + ${px}px)`;
   }
 
-  function resetSpacer() {
-    setSpacerHeight(0);
-  }
-
-  function ensureTooltipNotClipped() {
-    // In Rise, the code snippet may be in an iframe that auto-sizes based on document height.
-    // If the tooltip extends past the document scroll height, its border/shadow can get clipped.
-    // So we increase the document height using a spacer element.
-
-    const spacer = getSpacerEl();
-    if (!spacer || !tooltipEl || tooltipEl.style.display === "none") return;
-
-    const tipRect = tooltipEl.getBoundingClientRect();
-    const tooltipBottomInDoc = window.scrollY + tipRect.bottom;
-
-    // Current document height
-    const docHeight = Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight
-    );
-
-    const desiredHeight = tooltipBottomInDoc + TOOLTIP_BUFFER_PX;
-
-    if (desiredHeight > docHeight) {
-      // Add just enough extra space to reach desired height
-      const extraNeeded = desiredHeight - docHeight;
-      const currentSpacer = parseInt(spacer.style.height || "0", 10) || 0;
-      setSpacerHeight(currentSpacer + extraNeeded);
-    } else {
-      // If we already have extra space from a prior tooltip, keep it minimal
-      // (optional: you can reset here, but keeping it avoids jumpiness when hovering multiple terms)
-    }
+  function resetBodyPaddingBottom() {
+    if (originalBodyPaddingBottom === null) return;
+    document.body.style.paddingBottom = originalBodyPaddingBottom;
   }
 
   function createTooltip() {
@@ -104,22 +80,18 @@
     tooltipEl.innerHTML = "";
     activeAnchor = null;
 
-    // Reset spacer so your layout doesn't keep extra blank space
-    resetSpacer();
+    // ✅ remove extra space added for clipping protection
+    resetBodyPaddingBottom();
   }
 
-  // Tooltip positioning:
-  // - Prefer BELOW the term
-  // - If it would overflow bottom, flip ABOVE
-  // - Clamp within viewport
+  // Prefer BELOW the term; flip ABOVE only if it would overflow bottom.
   function positionTooltip(anchorEl) {
     const tip = createTooltip();
     const rect = anchorEl.getBoundingClientRect();
 
-    // Move to 0,0 first so the browser can measure it reliably
+    // Measure tooltip reliably
     tip.style.top = "0px";
     tip.style.left = "0px";
-
     const tipRect = tip.getBoundingClientRect();
 
     const viewTop = window.scrollY + EDGE_MARGIN_PX;
@@ -131,52 +103,51 @@
     let top = window.scrollY + rect.bottom + EDGE_MARGIN_PX;
     let left = window.scrollX + rect.left;
 
-    // If would overflow bottom, flip ABOVE
+    // Flip ABOVE if would overflow bottom
     if (top + tipRect.height > viewBottom) {
       top = window.scrollY + rect.top - tipRect.height - EDGE_MARGIN_PX;
     }
 
-    // Clamp vertically
+    // Clamp vertical
     if (top < viewTop) top = viewTop;
 
-    // Clamp horizontally
-    if (left + tipRect.width > viewRight) {
-      left = viewRight - tipRect.width;
-    }
+    // Clamp horizontal
+    if (left + tipRect.width > viewRight) left = viewRight - tipRect.width;
     if (left < viewLeft) left = viewLeft;
 
     tip.style.top = `${top}px`;
     tip.style.left = `${left}px`;
   }
 
-  function renderDefinition(termObj) {
-    const def = (termObj.definition || "").trim();
-    const img = (termObj.image || "").trim();
-    const link = (termObj.link || "").trim();
+  // ✅ Add bottom padding if tooltip would extend beyond document height (prevents Rise crop)
+  function preventClipping() {
+    if (!tooltipEl || tooltipEl.style.display === "none") return;
 
-    let html = `<div class="glossary-tooltip__def">${escapeText(def)}</div>`;
+    const tipRect = tooltipEl.getBoundingClientRect();
+    const tooltipBottomInDoc = window.scrollY + tipRect.bottom;
 
-    // Optional image support (if you add image URLs later)
-    if (img) {
-      html += `
-        <div class="glossary-tooltip__media">
-          <img src="${escapeAttr(img)}" alt="" style="max-width:100%; height:auto; border-radius:6px;" />
-        </div>`;
+    const docHeight = Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight
+    );
+
+    const desired = tooltipBottomInDoc + CLIP_BUFFER_PX;
+    const extraNeeded = desired - docHeight;
+
+    if (extraNeeded > 0) {
+      setBodyPaddingBottom(extraNeeded);
+    } else {
+      // Keep it tight if not needed
+      setBodyPaddingBottom(0);
     }
-
-    // Optional link support (if you add link URLs later)
-    if (link) {
-      html += `
-        <div class="glossary-tooltip__link">
-          <a href="${escapeAttr(link)}" target="_blank" rel="noopener noreferrer">Learn more</a>
-        </div>`;
-    }
-
-    return html;
   }
 
-  // Escapes plain text definitions for safety.
-  // If you intentionally want HTML in definitions, tell me and I’ll enable it safely.
+  function renderDefinition(termObj) {
+    const def = (termObj.definition || "").trim();
+    return `<div class="glossary-tooltip__def">${escapeText(def)}</div>`;
+  }
+
+  // Escapes definitions as plain text for safety
   function escapeText(text) {
     return String(text)
       .replaceAll("&", "&amp;")
@@ -184,14 +155,6 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
-  }
-
-  function escapeAttr(text) {
-    return String(text)
-      .replaceAll("&", "&amp;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
   }
 
   async function loadData() {
@@ -235,17 +198,15 @@
     tip.style.display = "block";
     activeAnchor = anchorEl;
 
-    // 1) Position it (prefer below)
     positionTooltip(anchorEl);
 
-    // 2) Ensure Rise doesn't crop it (grow the block if needed)
-    // Run twice to account for font rendering/layout settling
-    ensureTooltipNotClipped();
-    setTimeout(ensureTooltipNotClipped, 50);
+    // Run twice for layout settling (fonts, line wraps)
+    preventClipping();
+    setTimeout(preventClipping, 60);
   }
 
   function attachToTermEl(termEl, termObj) {
-    // Make focusable for keyboard users
+    // keyboard focusable
     if (!termEl.hasAttribute("tabindex")) termEl.setAttribute("tabindex", "0");
 
     termEl.addEventListener("mouseenter", () => {
@@ -261,7 +222,7 @@
 
     termEl.addEventListener("blur", scheduleHide);
 
-    // Touch/click toggle (helpful on mobile)
+    // mobile tap/click toggle
     termEl.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -289,7 +250,7 @@
     });
   }
 
-  // Close tooltip on Escape and outside click
+  // Close on Escape and outside click
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hideTooltip();
   });
@@ -301,7 +262,7 @@
     if (!clickedTerm && !clickedTooltip) hideTooltip();
   });
 
-  // Rise can load blocks dynamically; retry a few times
+  // Rise loads content dynamically; retry a few times
   function boot(retries = 10) {
     wireUp().catch((err) => console.warn("Glossary wiring failed:", err));
     if (retries <= 0) return;
