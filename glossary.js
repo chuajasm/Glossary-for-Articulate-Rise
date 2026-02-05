@@ -50,7 +50,7 @@
     activeAnchor = null;
   }
 
-  function positionTooltip(anchorEl) {
+  function  function positionTooltip(anchorEl) {   const tip = createTooltip();    // Measure anchor and tooltip   const rect = anchorEl.getBoundingClientRect();    // Temporarily place tooltip so it can be measured accurately   tip.style.top = "0px";   tip.style.left = "0px";    const tipRect = tip.getBoundingClientRect();    const margin = 10;    // Viewport boundaries (inside the iframe/page Rise is rendering)   const viewTop = window.scrollY + margin;   const viewLeft = window.scrollX + margin;   const viewBottom = window.scrollY + document.documentElement.clientHeight - margin;   const viewRight = window.scrollX + document.documentElement.clientWidth - margin;    // Try below first (more likely not to clip in Rise)   let top = window.scrollY + rect.bottom + margin;   let left = window.scrollX + rect.left;    // If tooltip would overflow bottom, put it above   if (top + tipRect.height > viewBottom) {     top = window.scrollY + rect.top - tipRect.height - margin;   }    // If still overflow top (very tight space), clamp to top   if (top < viewTop) {     top = viewTop;   }    // Clamp left so it stays in view   if (left + tipRect.width > viewRight) {     left = viewRight - tipRect.width;   }   if (left < viewLeft) {     left = viewLeft;   }    tip.style.top = `${top}px`;   tip.style.left = `${left}px`; } `` {
     const tip = createTooltip();
 
     const rect = anchorEl.getBoundingClientRect();
@@ -209,3 +209,4 @@
 
   boot();
 })();
+
