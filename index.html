@@ -1,0 +1,44 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glossary Test Page</title>
+
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+    .glossary-term {
+      border-bottom: 2px dotted #00558C; /* LAO blue */
+      color: #00558C;
+      cursor: help;
+      font-weight: 600;
+    }
+    .glossary-tooltip {
+      position: absolute;
+      background: #FFFFFF;
+      color: #1A1A1A;
+      border: 2px solid #00558C;
+      padding: 10px;
+      max-width: 280px;
+      border-radius: 6px;
+      z-index: 9999;
+      font-size: 16px;
+      line-height: 1.4;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Glossary Test Page</h1>
+  <p>
+    Hover this term:
+    <span class="glossary-term" data-term="Duty Counsel (DC)">Duty Counsel (DC)</span>
+  </p>
+
+  <!-- Load your glossary script -->
+  <script src="./glossary.js"></script>
+</body>
+</html>
