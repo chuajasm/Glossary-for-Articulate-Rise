@@ -1,6 +1,11 @@
 
-/* glossary.js — Hover tooltip glossary (matches your JSON structure)
-   Expects glossary.json in the same folder.
+/* glossary.js — Hover tooltip glossary (Rise-friendly)
+   Matches your JSON structure:
+   {
+     "settings": { "caseSensitive": false, ... },
+     "terms": [ { "word": "...", "definition": "...", "enabled": true, ... }, ... ]
+   }
+   Expects glossary.json in the same folder as this script.
 */
 
 (function () {
@@ -50,24 +55,50 @@
     activeAnchor = null;
   }
 
-  function  function positionTooltip(anchorEl) {   const tip = createTooltip();    // Measure anchor and tooltip   const rect = anchorEl.getBoundingClientRect();    // Temporarily place tooltip so it can be measured accurately   tip.style.top = "0px";   tip.style.left = "0px";    const tipRect = tip.getBoundingClientRect();    const margin = 10;    // Viewport boundaries (inside the iframe/page Rise is rendering)   const viewTop = window.scrollY + margin;   const viewLeft = window.scrollX + margin;   const viewBottom = window.scrollY + document.documentElement.clientHeight - margin;   const viewRight = window.scrollX + document.documentElement.clientWidth - margin;    // Try below first (more likely not to clip in Rise)   let top = window.scrollY + rect.bottom + margin;   let left = window.scrollX + rect.left;    // If tooltip would overflow bottom, put it above   if (top + tipRect.height > viewBottom) {     top = window.scrollY + rect.top - tipRect.height - margin;   }    // If still overflow top (very tight space), clamp to top   if (top < viewTop) {     top = viewTop;   }    // Clamp left so it stays in view   if (left + tipRect.width > viewRight) {     left = viewRight - tipRect.width;   }   if (left < viewLeft) {     left = viewLeft;   }    tip.style.top = `${top}px`;   tip.style.left = `${left}px`; } `` {
+  // Tooltip positioning:
+  // - Prefer BELOW the term
+  // - If it would overflow bottom, flip ABOVE
+  // - Clamp left/right/top within viewport
+  function positionTooltip(anchorEl) {
     const tip = createTooltip();
 
     const rect = anchorEl.getBoundingClientRect();
+
+    // Ensure tooltip is measurable (it must be visible to measure height accurately)
+    // We'll keep it visible but move it to 0,0 momentarily.
+    tip.style.top = "0px";
+    tip.style.left = "0px";
+
     const tipRect = tip.getBoundingClientRect();
 
-    // Default above; if no room, go below
-    let top = window.scrollY + rect.top - tipRect.height - 10;
+    const margin = 10;
+
+    const viewTop = window.scrollY + margin;
+    const viewLeft = window.scrollX + margin;
+    const viewBottom = window.scrollY + document.documentElement.clientHeight - margin;
+    const viewRight = window.scrollX + document.documentElement.clientWidth - margin;
+
+    // Prefer BELOW the term
+    let top = window.scrollY + rect.bottom + margin;
     let left = window.scrollX + rect.left;
 
-    if (top < window.scrollY + 10) {
-      top = window.scrollY + rect.bottom + 10;
+    // If tooltip would overflow bottom, flip ABOVE
+    if (top + tipRect.height > viewBottom) {
+      top = window.scrollY + rect.top - tipRect.height - margin;
     }
 
-    // Clamp within viewport
-    const viewportWidth = document.documentElement.clientWidth;
-    const maxLeft = window.scrollX + viewportWidth - tipRect.width - 10;
-    left = Math.min(Math.max(left, window.scrollX + 10), maxLeft);
+    // If still too high, clamp to top
+    if (top < viewTop) {
+      top = viewTop;
+    }
+
+    // Clamp left so it stays in view
+    if (left + tipRect.width > viewRight) {
+      left = viewRight - tipRect.width;
+    }
+    if (left < viewLeft) {
+      left = viewLeft;
+    }
 
     tip.style.top = `${top}px`;
     tip.style.left = `${left}px`;
@@ -78,22 +109,30 @@
     const img = (termObj.image || "").trim();
     const link = (termObj.link || "").trim();
 
-    let html = `<div style="font-size:16px; line-height:1.4;">${escapeIfNeeded(def)}</div>`;
+    let html = `<div class="glossary-tooltip__def">${escapeText(def)}</div>`;
 
+    // Optional image support (if you decide to add image URLs later)
     if (img) {
-      html += `<div style="margin-top:8px;"><img src="${escapeAttr(img)}" alt="" style="max-width:100%; height:auto; border-radius:4px;" /></div>`;
+      html += `
+        <div class="glossary-tooltip__media">
+          <img src="${escapeAttr(img)}" alt="" style="max-width:100%; height:auto; border-radius:6px;">
+        </div>`;
     }
 
+    // Optional link support (if you decide to add link URLs later)
     if (link) {
-      html += `<div style="margin-top:8px;"><a href="${escapeAttr(link)}" target="_blank" rel="noopener noreferrer">Learn more</a></div>`;
+      html += `
+        <div class="glossary-tooltip__link">
+          <a href="${escapeAttr(link)}" target="_blank" rel="noopener noreferrer">Learn more</a>
+        </div>`;
     }
 
     return html;
   }
 
-  // If your definitions are plain text, this prevents accidental HTML injection.
-  // If you intentionally include HTML in definitions, tell me and I’ll switch to “allow HTML”.
-  function escapeIfNeeded(text) {
+  // Escapes plain text definitions for safety.
+  // If you intentionally want HTML in definitions, tell me and I’ll enable it safely.
+  function escapeText(text) {
     return String(text)
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
@@ -103,7 +142,11 @@
   }
 
   function escapeAttr(text) {
-    return String(text).replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+    return String(text)
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   }
 
   async function loadData() {
@@ -119,16 +162,21 @@
     if (mapCache) return mapCache;
 
     const data = await loadData();
-    const caseSensitive = !!(data.settings && data.settings.caseSensitive);
+    const caseSensitive =
+      !!(data.settings && typeof data.settings.caseSensitive === "boolean"
+        ? data.settings.caseSensitive
+        : false);
 
     const map = new Map();
-
     const terms = Array.isArray(data.terms) ? data.terms : [];
+
     terms.forEach((t) => {
       if (!t) return;
       if (t.enabled === false) return;
+
       const key = normalize(t.word, caseSensitive);
       if (!key) return;
+
       map.set(key, t);
     });
 
@@ -142,7 +190,7 @@
     tip.style.display = "block";
     activeAnchor = anchorEl;
 
-    // Now that content is in, we can measure and position
+    // Position after content is applied so sizing is correct
     positionTooltip(anchorEl);
   }
 
@@ -163,10 +211,11 @@
 
     termEl.addEventListener("blur", scheduleHide);
 
-    // Touch/click toggle (useful on mobile where hover doesn't exist)
+    // Touch/click toggle (helpful on mobile)
     termEl.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+
       if (activeAnchor === termEl && tooltipEl && tooltipEl.style.display === "block") {
         hideTooltip();
       } else {
@@ -182,13 +231,15 @@
     nodes.forEach((el) => {
       const raw = el.getAttribute("data-term") || "";
       const key = normalize(raw, caseSensitive);
+
       const termObj = map.get(key);
-      if (!termObj) return; // no match
+      if (!termObj) return;
+
       attachToTermEl(el, termObj);
     });
   }
 
-  // Close tooltip on Escape and on outside click
+  // Close tooltip on Escape and outside click
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hideTooltip();
   });
@@ -200,7 +251,7 @@
     if (!clickedTerm && !clickedTooltip) hideTooltip();
   });
 
-  // Rise and some pages load content late; retry a few times
+  // Rise can load blocks dynamically; retry a few times.
   function boot(retries = 10) {
     wireUp().catch((err) => console.warn("Glossary wiring failed:", err));
     if (retries <= 0) return;
@@ -209,4 +260,3 @@
 
   boot();
 })();
-
